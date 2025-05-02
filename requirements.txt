@@ -1,0 +1,8 @@
+openai
+google-generativeai
+python-dotenv
+pandas
+pdf2image
+pillow
+requests
+tqdm

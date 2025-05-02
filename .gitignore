@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# dotenv
+.env
+
+# Output
+receipts.csv
+
+# macOS
+.DS_Store
+
+# Data
+data/

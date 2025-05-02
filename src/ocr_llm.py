@@ -4,6 +4,8 @@ from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
 import openai
+import json
+from main import Receipt
 
 # プロジェクトルートの.envを明示的に読み込む
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
@@ -22,9 +24,8 @@ def extract_receipt_info(img):
     img_b64 = image_to_base64(img)
     prompt = (
         "領収書画像から、次の情報を日本語で抽出してください："
-        "1. 日時 2. 店舗名またはサービス名 3. 使用用途 4. 金額。"
-        "フォーマットはCSV: 日時,店舗orサービス名,使用用途,金額 の順で1行で返してください。"
-        "例: 2024/04/01 12:34,コンビニ,昼食,800"
+        "date（日時）, service（店舗名またはサービス名）, detail（使用用途）, price（金額）をjson形式で返してください。"
+        "例: {\"date\": \"2024/04/01 12:34\", \"service\": \"コンビニ\", \"detail\": \"昼食\", \"price\": 800}"
     )
     try:
         response = openai.chat.completions.create(
@@ -42,15 +43,12 @@ def extract_receipt_info(img):
             max_tokens=256
         )
         text = response.choices[0].message.content.strip()
-        parts = [x.strip() for x in text.split(",")]
-        if len(parts) != 4:
+        try:
+            data = json.loads(text)
+            receipt = Receipt(**data)
+            return receipt.model_dump()
+        except Exception:
             return None
-        return {
-            "日時": parts[0],
-            "店舗orサービス名": parts[1],
-            "使用用途": parts[2],
-            "金額": parts[3]
-        }
     except Exception as e:
         print(f"OpenAI APIエラー: {e}")
         return None

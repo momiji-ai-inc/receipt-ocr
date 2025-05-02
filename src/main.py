@@ -5,6 +5,13 @@ from pdf2image import convert_from_path
 from PIL import Image
 import pandas as pd
 from ocr_llm import extract_receipt_info
+from pydantic import BaseModel
+
+class Receipt(BaseModel):
+    date: str
+    service: str
+    detail: str
+    price: int
 
 def pdf_to_images(pdf_path):
     return convert_from_path(pdf_path)

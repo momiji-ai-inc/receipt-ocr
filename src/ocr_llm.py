@@ -20,8 +20,8 @@ def extract_receipt_info(img) -> Receipt:
     img_b64 = image_to_base64(img)
     prompt = (
         "領収書画像から、次の情報を日本語で抽出してください："
-        "date（日時）, service（店舗名またはサービス名）, detail（使用用途）, price（金額）をjson形式で返してください。"
-        "例: {'date': '2024/04/01 12:34', 'service': 'Amazon', 'detail': '書籍代', 'price': 800}"
+        "date（購入日、時間は含めずYYYY/MM/DD形式）, service（店舗名またはサービス名）, detail（使用用途）, price（金額）をjson形式で返してください。"
+        "例: {'date': '2024/04/01', 'service': 'Amazon', 'detail': '書籍代', 'price': 800}"
     )
     completion = client.beta.chat.completions.parse(
         model="gpt-4o",

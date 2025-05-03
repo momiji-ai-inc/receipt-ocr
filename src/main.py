@@ -27,6 +27,7 @@ def save_to_csv(results):
     csv_path = os.path.join("output", f"{now_str}.csv")
 
     df = pd.DataFrame(results)
+    df["date"] = df["date"].str[:10]
     df = df[["date", "service", "detail", "price"]]
     df.to_csv(csv_path, index=False)
 

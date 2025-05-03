@@ -28,6 +28,8 @@ def save_to_csv(results):
 
     df = pd.DataFrame(results)
     df["date"] = df["date"].str[:10]
+    df["date"] = pd.to_datetime(df["date"], format="%Y/%m/%d")
+    df = df.sort_values("date").reset_index(drop=True)
     df = df[["date", "service", "detail", "price"]]
     df.to_csv(csv_path, index=False)
 

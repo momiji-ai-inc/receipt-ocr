@@ -33,6 +33,8 @@ def save_to_csv(results):
     df = df[["date", "service", "detail", "price"]]
     df.to_csv(csv_path, index=False)
 
+import shutil
+
 def main(data_dir):
     pdf_files = glob.glob(os.path.join(data_dir, "*.pdf"))
     img_exts = ["*.jpg", "*.JPG", "*.jpeg", "*.png", "*.bmp", "*.gif"]
@@ -44,6 +46,10 @@ def main(data_dir):
     print(f"  画像ファイル数: {len(img_files)}")
     results = []
 
+    if os.path.exists("output/pdfs"):
+        shutil.rmtree("output/pdfs")
+    os.makedirs("output/pdfs", exist_ok=True)
+
     # 画像ファイルを1枚ずつ処理
     for img_path in img_files:
         try:
@@ -51,8 +57,15 @@ def main(data_dir):
             info = extract_receipt_info(img)
             print(f">> {os.path.basename(pdf_path)}")
             print(f"  {info}")
+
             if info:
                 results.append(info.model_dump())
+                date = info.date.replace("/", "")
+                service = str(info.service).replace("/", "_").replace(" ", "_").replace("\t", "_")
+                detail = str(info.detail).replace("/", "_").replace(" ", "_").replace("\t", "_")
+                out_pdf = f"{date}_{service}_{detail}.pdf"
+                out_pdf_path = os.path.join("output/pdfs", out_pdf)
+                img.convert("RGB").save(out_pdf_path, "PDF")
         except Exception:
             pass
 
@@ -64,12 +77,21 @@ def main(data_dir):
                 merged_img = pdf_images[0]
             elif len(pdf_images) >= 2:
                 merged_img = concat_images_vertically(pdf_images)
+            else:
+                continue
 
             info = extract_receipt_info(merged_img)
             print(f">> {os.path.basename(pdf_path)}")
             print(f"  {info}")
+
             if info:
                 results.append(info.model_dump())
+                date = info.date.replace("/", "")
+                service = str(info.service).replace("/", "_").replace(" ", "_").replace("\t", "_")
+                detail = str(info.detail).replace("/", "_").replace(" ", "_").replace("\t", "_")
+                out_pdf = f"{date}_{service}_{detail}.pdf"
+                out_pdf_path = os.path.join("output/pdfs", out_pdf)
+                merged_img.convert("RGB").save(out_pdf_path, "PDF")
         except Exception:
             pass
 

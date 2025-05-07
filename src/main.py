@@ -3,6 +3,7 @@ import glob
 from datetime import datetime
 from pdf2image import convert_from_path
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 import pandas as pd
 from ocr_llm import extract_receipt_info
 
@@ -41,6 +42,55 @@ def save_to_csv(results: list[dict]):
 
 import shutil
 
+def load_image(img_path):
+    try:
+        img = Image.open(img_path)
+        return (img_path, img)
+    except Exception as e:
+        print(f"image load error: {img_path} {e}")
+        return None
+
+def load_pdf(pdf_path):
+    try:
+        pdf_images = pdf_to_images(pdf_path)
+        if len(pdf_images) == 1:
+            merged_img = pdf_images[0]
+        elif len(pdf_images) >= 2:
+            merged_img = concat_images_vertically(pdf_images)
+        else:
+            return None
+        return (pdf_path, merged_img)
+    except Exception as e:
+        print(f"pdf load error: {pdf_path} {e}")
+        return None
+
+def ocr_and_save(args):
+    path, img = args
+    try:
+        # OpenAI Vision APIの制限に合わせてリサイズ（長辺1024px以下、RGB化）
+        max_side = 1024
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        w, h = img.size
+        scale = max(w, h) / max_side if max(w, h) > max_side else 1
+        if scale > 1:
+            img = img.resize((int(w / scale), int(h / scale)), Image.LANCZOS)
+        info = extract_receipt_info(img)
+        print(f">> {os.path.basename(path)}")
+        print(f"  {info}")
+        if info:
+            result = info.model_dump()
+            date = sanitize_filename(info.date.replace("/", ""))
+            service = sanitize_filename(info.service)
+            detail = sanitize_filename(info.detail)
+            out_pdf = f"{date}_{service}_{detail}.pdf"
+            out_pdf_path = os.path.join("output/pdfs", out_pdf)
+            img.save(out_pdf_path, "PDF")
+            return result
+    except Exception as e:
+        print(f"OCR error: {path} {e}")
+    return None
+
 def main(data_dir: str):
     pdf_files = glob.glob(os.path.join(data_dir, "*.pdf"))
     img_exts = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.gif"]
@@ -57,50 +107,26 @@ def main(data_dir: str):
         shutil.rmtree("output/pdfs")
     os.makedirs("output/pdfs", exist_ok=True)
 
-    # 画像ファイルを1枚ずつ処理
-    for img_path in img_files:
-        try:
-            img = Image.open(img_path)
-            info = extract_receipt_info(img)
-            print(f">> {os.path.basename(img_path)}")
-            print(f"  {info}")
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
 
-            if info:
-                results.append(info.model_dump())
-                date = sanitize_filename(info.date.replace("/", ""))
-                service = sanitize_filename(info.service)
-                detail = sanitize_filename(info.detail)
-                out_pdf = f"{date}_{service}_{detail}.pdf"
-                out_pdf_path = os.path.join("output/pdfs", out_pdf)
-                img.convert("RGB").save(out_pdf_path, "PDF")
-        except Exception as e:
-            print(f"image error: {img_path} {e}")
+    # 画像・PDFの前処理（Image生成）をプロセス並列
+    images = []
+    with ProcessPoolExecutor() as p_executor:
+        img_futures = [p_executor.submit(load_image, img_path) for img_path in img_files]
+        pdf_futures = [p_executor.submit(load_pdf, pdf_path) for pdf_path in pdf_files]
+        for future in as_completed(img_futures + pdf_futures):
+            r = future.result()
+            if r:
+                images.append(r)
 
-    # PDFは全ページを縦に連結して1枚の画像にして処理
-    for pdf_path in pdf_files:
-        try:
-            pdf_images = pdf_to_images(pdf_path)
-            if len(pdf_images) == 1:
-                merged_img = pdf_images[0]
-            elif len(pdf_images) >= 2:
-                merged_img = concat_images_vertically(pdf_images)
-            else:
-                continue
-
-            info = extract_receipt_info(merged_img)
-            print(f">> {os.path.basename(pdf_path)}")
-            print(f"  {info}")
-
-            if info:
-                results.append(info.model_dump())
-                date = sanitize_filename(info.date.replace("/", ""))
-                service = sanitize_filename(info.service)
-                detail = sanitize_filename(info.detail)
-                out_pdf = f"{date}_{service}_{detail}.pdf"
-                out_pdf_path = os.path.join("output/pdfs", out_pdf)
-                merged_img.convert("RGB").save(out_pdf_path, "PDF")
-        except Exception as e:
-            print(f"pdf error: {pdf_path} {e}")
+    # OCR部分をスレッド並列
+    with ThreadPoolExecutor() as t_executor:
+        ocr_futures = [t_executor.submit(ocr_and_save, args) for args in images]
+        for future in as_completed(ocr_futures):
+            r = future.result()
+            if r:
+                results.append(r)
 
     print(f"検出件数: {len(results)}")
     if results:

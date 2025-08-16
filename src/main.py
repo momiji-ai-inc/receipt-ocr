@@ -1,5 +1,6 @@
 import os
 import glob
+import time
 from datetime import datetime
 from pdf2image import convert_from_path
 from PIL import Image
@@ -76,6 +77,7 @@ def ocr_and_save(args):
         if scale > 1:
             img = img.resize((int(w / scale), int(h / scale)), Image.LANCZOS)
         info = extract_receipt_info(img)
+        time.sleep(1)
         print(f">> {os.path.basename(path)}")
         print(f"  {info}")
         if info:
@@ -120,13 +122,11 @@ def main(data_dir: str):
             if r:
                 images.append(r)
 
-    # OCR部分をスレッド並列
-    with ThreadPoolExecutor() as t_executor:
-        ocr_futures = [t_executor.submit(ocr_and_save, args) for args in images]
-        for future in as_completed(ocr_futures):
-            r = future.result()
-            if r:
-                results.append(r)
+    # OCR部分は逐次実行（レートリミット対策）
+    for args in images:
+        r = ocr_and_save(args)
+        if r:
+            results.append(r)
 
     print(f"検出件数: {len(results)}")
     if results:

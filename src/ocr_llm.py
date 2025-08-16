@@ -1,16 +1,17 @@
 import os
 import base64
+import json
 from io import BytesIO
 from dotenv import load_dotenv
-from openai import OpenAI
+import requests
 from models import Receipt
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY is not set in .env")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY is not set in .env")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
 
 def image_to_base64(img) -> str:
     buffered = BytesIO()
@@ -18,31 +19,53 @@ def image_to_base64(img) -> str:
     return base64.b64encode(buffered.getvalue()).decode()
 
 def extract_receipt_info(img) -> Receipt | None:
-    img_b64 = image_to_base64(img)
     prompt = (
         "領収書画像から、次の情報を日本語で抽出してください："
         "date（購入日、時間は含めずYYYY/MM/DD形式）, service（店舗名またはサービス名）, detail（使用用途）, price（金額）をjson形式で返してください。"
         "例: {'date': '2024/04/01', 'service': 'Amazon', 'detail': '書籍代', 'price': 800}"
     )
     try:
-        completion = client.beta.chat.completions.parse(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "あなたは日本語の領収書解析アシスタントです。"},
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        img_bytes = buffered.getvalue()
+        img_b64 = base64.b64encode(img_bytes).decode()
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY,
+        }
+        data = {
+            "contents": [
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/png",
+                                "data": img_b64
+                            }
+                        }
                     ]
                 }
-            ],
-            response_format=Receipt,
-        )
-        if not completion.choices or not hasattr(completion.choices[0].message, "parsed"):
-            print("No valid response from OpenAI")
+            ]
+        }
+        resp = requests.post(GEMINI_API_URL, headers=headers, json=data)
+        resp.raise_for_status()
+        resp_json = resp.json()
+        # Geminiのレスポンステキスト抽出
+        text = ""
+        try:
+            text = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            print(f"Gemini API response parse error: {e}\nRaw response: {resp_json}")
             return None
-        return completion.choices[0].message.parsed
+        # JSON部分を抽出してReceiptに変換
+        try:
+            json_str = text[text.find("{"):text.rfind("}")+1]
+            data = json.loads(json_str)
+            return Receipt(**data)
+        except Exception as e:
+            print(f"JSON parse error: {e}\nLLM response: {text}")
+            return None
     except Exception as e:
-        print(f"OpenAI API error: {e}")
+        print(f"Gemini API error: {e}")
         return None
